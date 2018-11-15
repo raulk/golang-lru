@@ -375,3 +375,42 @@ func TestARC_Peek(t *testing.T) {
 		t.Errorf("should not have updated recent-ness of 1")
 	}
 }
+
+func TestARC_EvictCallback(t *testing.T) {
+	expected := []int{1, 2, 4}
+
+	var evicted []int
+	l, err := NewARCWithEvict(4, func(key interface{}, value interface{}) {
+		evicted = append(evicted, key.(int))
+	})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	l.Add(1, nil)
+	l.Add(2, nil)
+	l.Add(3, nil)
+	l.Add(4, nil)
+
+	// action happens now
+	l.Add(4, nil)
+	l.Add(5, nil) // evicts 1 -> callback
+	l.Add(1, nil) // readds 1, evicts 2 -> callback
+	l.Add(1, nil) // nothing happens, as the element is already there
+
+	l.Remove(3) // nothing happens, this produces no callback as it's not an eviction but an explicit removal
+
+	l.Add(5, nil) // nothing happens, as there's space for one element
+	l.Add(6, nil) // nothing happens, as there's space for one element
+	l.Add(7, nil) // evicts 4 -> callback
+
+	if len(evicted) != len(expected) {
+		t.Fatalf("expected evicted list to have length %d, was: %d", len(expected), len(evicted))
+	}
+
+	for i := range evicted {
+		if evicted[i] != expected[i] {
+			t.Errorf("expected element at index %d to be %d, was: %d", i, expected[i], evicted[i])
+		}
+	}
+}

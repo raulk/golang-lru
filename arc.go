@@ -24,11 +24,18 @@ type ARCCache struct {
 	t2 simplelru.LRUCache // T2 is the LRU for frequently accessed items
 	b2 simplelru.LRUCache // B2 is the LRU for evictions from t2
 
+	onEvict func(key interface{}, value interface{})
+
 	lock sync.RWMutex
 }
 
 // NewARC creates an ARC of the given size
 func NewARC(size int) (*ARCCache, error) {
+	return NewARCWithEvict(size, nil)
+}
+
+// NewARCWithEvict creates a new ARC cache with a function that gets called when an eviction happens.
+func NewARCWithEvict(size int, onEvicted func(key interface{}, value interface{})) (*ARCCache, error) {
 	// Create the sub LRUs
 	b1, err := simplelru.NewLRU(size, nil)
 	if err != nil {
@@ -38,11 +45,11 @@ func NewARC(size int) (*ARCCache, error) {
 	if err != nil {
 		return nil, err
 	}
-	t1, err := simplelru.NewLRU(size, nil)
+	t1, err := simplelru.NewLRU(size, onEvicted, simplelru.DisableEvictCallbackOnRemove)
 	if err != nil {
 		return nil, err
 	}
-	t2, err := simplelru.NewLRU(size, nil)
+	t2, err := simplelru.NewLRU(size, onEvicted, simplelru.DisableEvictCallbackOnRemove)
 	if err != nil {
 		return nil, err
 	}

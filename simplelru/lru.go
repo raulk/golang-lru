@@ -10,10 +10,24 @@ type EvictCallback func(key interface{}, value interface{})
 
 // LRU implements a non-thread safe fixed size LRU cache
 type LRU struct {
-	size      int
-	evictList *list.List
-	items     map[interface{}]*list.Element
-	onEvict   EvictCallback
+	size             int
+	evictList        *list.List
+	items            map[interface{}]*list.Element
+	onEvict          EvictCallback
+	cbOnRemove       bool
+	cbOnRemoveOldest bool
+}
+
+type Option func(lru *LRU)
+
+// DisableEvictCallbackOnRemove disables evict callbacks when calling Remove().
+var DisableEvictCallbackOnRemove Option = func(lru *LRU) {
+	lru.cbOnRemove = false
+}
+
+// DisableEvictCallbackOnRemove disables evict callbacks when calling RemoveOldest().
+var DisableEvictCallbackOnRemoveOldest Option = func(lru *LRU) {
+	lru.cbOnRemoveOldest = false
 }
 
 // entry is used to hold a value in the evictList
@@ -23,15 +37,20 @@ type entry struct {
 }
 
 // NewLRU constructs an LRU of the given size
-func NewLRU(size int, onEvict EvictCallback) (*LRU, error) {
+func NewLRU(size int, onEvict EvictCallback, opts ...Option) (*LRU, error) {
 	if size <= 0 {
 		return nil, errors.New("Must provide a positive size")
 	}
 	c := &LRU{
-		size:      size,
-		evictList: list.New(),
-		items:     make(map[interface{}]*list.Element),
-		onEvict:   onEvict,
+		size:             size,
+		evictList:        list.New(),
+		items:            make(map[interface{}]*list.Element),
+		onEvict:          onEvict,
+		cbOnRemove:       true,
+		cbOnRemoveOldest: true,
+	}
+	for _, opt := range opts {
+		opt(c)
 	}
 	return c, nil
 }
@@ -99,7 +118,7 @@ func (c *LRU) Peek(key interface{}) (value interface{}, ok bool) {
 // key was contained.
 func (c *LRU) Remove(key interface{}) (present bool) {
 	if ent, ok := c.items[key]; ok {
-		c.removeElement(ent)
+		c.removeElement(ent, c.cbOnRemove)
 		return true
 	}
 	return false
@@ -109,7 +128,7 @@ func (c *LRU) Remove(key interface{}) (present bool) {
 func (c *LRU) RemoveOldest() (key interface{}, value interface{}, ok bool) {
 	ent := c.evictList.Back()
 	if ent != nil {
-		c.removeElement(ent)
+		c.removeElement(ent, c.cbOnRemoveOldest)
 		kv := ent.Value.(*entry)
 		return kv.key, kv.value, true
 	}
@@ -146,16 +165,16 @@ func (c *LRU) Len() int {
 func (c *LRU) removeOldest() {
 	ent := c.evictList.Back()
 	if ent != nil {
-		c.removeElement(ent)
+		c.removeElement(ent, true)
 	}
 }
 
 // removeElement is used to remove a given list element from the cache
-func (c *LRU) removeElement(e *list.Element) {
+func (c *LRU) removeElement(e *list.Element, callback bool) {
 	c.evictList.Remove(e)
 	kv := e.Value.(*entry)
 	delete(c.items, kv.key)
-	if c.onEvict != nil {
+	if callback && c.onEvict != nil {
 		c.onEvict(kv.key, kv.value)
 	}
 }
